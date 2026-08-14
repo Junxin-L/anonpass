@@ -1,0 +1,109 @@
+# Anonpass
+
+Anonpass is a Go service for anonymous, one-time access tokens.
+
+The problem is: A user signs in and has a quota. Later, the user wants to access a gateway. The gateway should be able to check that the request is allowed, and it should reject the same token if it appears again. At the same time, the gateway should not learn which account received the token.
+
+Anonpass separates those two moments. The issuer handles identity and quota. The gateway handles redemption and replay. The client connects them with a blind signature.
+
+The protocol is short:
+
+1. The client creates a random token.
+2. The client blinds the token and sends the blinded value to the issuer.
+3. The issuer checks the account quota and signs the blinded value.
+4. The client unblinds the signature.
+5. The gateway verifies the token and records it as spent.
+
+The issuer never sees the final token. The gateway never sees the account.
+
+## Why The Split Matters
+
+A bearer token or JWT is faster and easier to deploy. It is also more linkable. In many systems that is acceptable, but it is the wrong tradeoff when the spend path should not carry account identity.
+
+Anonpass keeps the useful part of an access-token system: quota, verification, and replay protection. It removes the direct link between issuance and redemption.
+
+The cryptographic part uses Cloudflare CIRCL's implementation of RFC 9474 RSA Blind Signatures, using the randomized SHA-384/PSS variant. The project does not implement its own signature scheme. The local code is about the service boundary: issuer state, gateway state, key ids, HTTP handlers, and tests.
+
+## Performance
+
+Benchmarks were run on an Apple M1 Pro with 2048-bit RSA keys.
+
+```text
+BenchmarkBlindSignUnblindVerify-8      about 3.70 ms/op   56.2 KB/op   178 allocs/op
+BenchmarkIssueAndRedeem-8              about 3.60 ms/op   57.7 KB/op   183 allocs/op
+```
+
+That is roughly 270 blind-signature flows per second for the crypto path and 277 full issue-and-redeem flows per second in one process.
+
+This should not be compared to JWT on speed alone. JWT wins that benchmark easily. The comparison here is about what the gateway learns. Anonpass spends a few milliseconds so the gateway can validate a one-time token without receiving the account identity.
+
+In a larger deployment, the bottleneck would likely move to durable replay storage, network calls, and cross-region consistency.
+
+## Run
+
+Start the server:
+
+```sh
+go run ./cmd/anonpassd -addr :8080 -quota 5
+```
+
+Run the local protocol demo:
+
+```sh
+go run ./cmd/anonpassdemo
+```
+
+Run tests and benchmarks:
+
+```sh
+GOCACHE=/tmp/anonpass-gocache go test ./...
+GOCACHE=/tmp/anonpass-gocache go test -bench=. -benchmem ./internal/blindrsa ./internal/tokens
+```
+
+`GOCACHE` is only needed in restricted environments where Go cannot write to the default cache directory.
+
+## API
+
+Fetch the issuer key:
+
+```sh
+curl -s localhost:8080/v1/issuer/key
+```
+
+Ask the issuer to sign a blinded token:
+
+```sh
+curl -s -X POST localhost:8080/v1/issuer/blind-sign \
+  -H 'content-type: application/json' \
+  -d '{"account":"alice","blinded_token":"hex"}'
+```
+
+Redeem a token at the gateway:
+
+```sh
+curl -s -X POST localhost:8080/v1/gateway/redeem \
+  -H 'content-type: application/json' \
+  -d '{"key_id":"local-1","token":"hex","signature":"hex"}'
+```
+
+The curl examples show the server boundary. The client-side blind and unblind flow is in `cmd/anonpassdemo` and the unit tests.
+
+## Layout
+
+```text
+cmd/anonpassd         HTTP server
+cmd/anonpassdemo      local end-to-end demo
+internal/blindrsa     wrapper around CIRCL RFC 9474 RSABSSA
+internal/tokens       issuer, gateway, quota, replay cache
+internal/httpapi      JSON handlers
+docs/design.md        design notes
+docs/api.md           API reference
+```
+
+## Current Limits
+
+The demo stores quota and spent tokens in memory. A production version would need durable replay storage, token expiry, key management, and care around timing correlation. Those parts are left visible in the design instead of being hidden behind framework code.
+
+## AI Use
+
+AI was used to help edit the wording of the documentation and suggestion for libraries. The protocol choice, code structure, tests, benchmark runs, and final review remain the author's responsibility.

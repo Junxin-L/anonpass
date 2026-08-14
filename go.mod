@@ -1,0 +1,5 @@
+module anonpass
+
+go 1.26
+
+require github.com/cloudflare/circl v1.6.4
