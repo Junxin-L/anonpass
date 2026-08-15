@@ -100,8 +100,12 @@ func (api *API) redeem(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, "already_spent")
 		case errors.Is(err, tokens.ErrUnknownKey):
 			writeError(w, http.StatusBadRequest, "unknown_key")
-		default:
+		case errors.Is(err, tokens.ErrExpiredKey):
+			writeError(w, http.StatusUnauthorized, "expired_key")
+		case errors.Is(err, tokens.ErrBadToken):
 			writeError(w, http.StatusUnauthorized, "bad_token")
+		default:
+			writeError(w, http.StatusInternalServerError, "redeem_failed")
 		}
 		return
 	}

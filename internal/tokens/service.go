@@ -17,13 +17,15 @@ var (
 	ErrUnknownKey   = errors.New("unknown key")
 	ErrBadToken     = errors.New("bad token")
 	ErrAlreadySpent = errors.New("token already spent")
+	ErrExpiredKey   = errors.New("key expired")
 )
 
 type PublicKey struct {
-	KeyID string         `json:"key_id"`
-	Key   *rsa.PublicKey `json:"-"`
-	N     string         `json:"n"`
-	E     int            `json:"e"`
+	KeyID    string         `json:"key_id"`
+	Key      *rsa.PublicKey `json:"-"`
+	N        string         `json:"n"`
+	E        int            `json:"e"`
+	NotAfter int64          `json:"not_after"`
 }
 
 type BlindSignature struct {
@@ -37,11 +39,12 @@ type Receipt struct {
 }
 
 type Issuer struct {
-	mu      sync.Mutex
-	keyID   string
-	key     *rsa.PrivateKey
-	quota   map[string]int
-	perUser int
+	mu       sync.Mutex
+	keyID    string
+	key      *rsa.PrivateKey
+	notAfter int64
+	quota    map[string]int
+	perUser  int
 }
 
 func NewIssuer(keyID string, bits int, perUser int) (*Issuer, error) {
@@ -49,19 +52,24 @@ func NewIssuer(keyID string, bits int, perUser int) (*Issuer, error) {
 	if err != nil {
 		return nil, err
 	}
+	return NewIssuerWithKey(keyID, key, perUser, time.Now().Add(24*time.Hour).Unix()), nil
+}
+
+func NewIssuerWithKey(keyID string, key *rsa.PrivateKey, perUser int, notAfter int64) *Issuer {
 	return &Issuer{
-		keyID:   keyID,
-		key:     key,
-		quota:   make(map[string]int),
-		perUser: perUser,
-	}, nil
+		keyID:    keyID,
+		key:      key,
+		notAfter: notAfter,
+		quota:    make(map[string]int),
+		perUser:  perUser,
+	}
 }
 
 func (i *Issuer) PublicKey() PublicKey {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	return publicKey(i.keyID, &i.key.PublicKey)
+	return publicKey(i.keyID, &i.key.PublicKey, i.notAfter)
 }
 
 func (i *Issuer) Issue(account string, blindedToken []byte) (BlindSignature, error) {
@@ -90,19 +98,26 @@ func (i *Issuer) Issue(account string, blindedToken []byte) (BlindSignature, err
 
 type Gateway struct {
 	mu    sync.Mutex
-	keys  map[string]*rsa.PublicKey
-	spent map[string]Receipt
+	keys  map[string]PublicKey
+	store ReplayStore
 	now   func() time.Time
 }
 
 func NewGateway(keys ...PublicKey) *Gateway {
+	return NewGatewayWithStore(NewMemoryReplayStore(), keys...)
+}
+
+func NewGatewayWithStore(store ReplayStore, keys ...PublicKey) *Gateway {
+	if store == nil {
+		store = NewMemoryReplayStore()
+	}
 	g := &Gateway{
-		keys:  make(map[string]*rsa.PublicKey),
-		spent: make(map[string]Receipt),
+		keys:  make(map[string]PublicKey),
+		store: store,
 		now:   time.Now,
 	}
 	for _, key := range keys {
-		g.keys[key.KeyID] = key.Key
+		g.keys[key.KeyID] = key
 	}
 	return g
 }
@@ -110,32 +125,37 @@ func NewGateway(keys ...PublicKey) *Gateway {
 func (g *Gateway) AddKey(key PublicKey) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.keys[key.KeyID] = key.Key
+	g.keys[key.KeyID] = key
 }
 
 func (g *Gateway) Redeem(keyID string, token, signature []byte) (Receipt, error) {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	key := g.keys[keyID]
-	if key == nil {
+	key, ok := g.keys[keyID]
+	g.mu.Unlock()
+	if !ok || key.Key == nil {
 		return Receipt{}, ErrUnknownKey
 	}
-	if !blindrsa.Verify(key, token, signature) {
+	if key.NotAfter > 0 && g.now().Unix() > key.NotAfter {
+		return Receipt{}, ErrExpiredKey
+	}
+	if !blindrsa.Verify(key.Key, token, signature) {
 		return Receipt{}, ErrBadToken
 	}
 
 	tokenHash := hashHex(token)
-	if receipt, ok := g.spent[tokenHash]; ok {
-		return receipt, ErrAlreadySpent
-	}
-
 	receipt := Receipt{
 		TokenHash:  tokenHash,
 		RedeemedAt: g.now().Unix(),
 	}
-	g.spent[tokenHash] = receipt
-	return receipt, nil
+
+	out, inserted, err := g.store.Spend(tokenHash, receipt)
+	if err != nil {
+		return Receipt{}, err
+	}
+	if !inserted {
+		return out, ErrAlreadySpent
+	}
+	return out, nil
 }
 
 type ClientToken struct {
@@ -164,12 +184,13 @@ func (t ClientToken) Unblind(pub *rsa.PublicKey, blindSig []byte) ([]byte, error
 	return blindrsa.Unblind(pub, blindSig, t.state)
 }
 
-func publicKey(keyID string, key *rsa.PublicKey) PublicKey {
+func publicKey(keyID string, key *rsa.PublicKey, notAfter int64) PublicKey {
 	return PublicKey{
-		KeyID: keyID,
-		Key:   key,
-		N:     key.N.Text(16),
-		E:     key.E,
+		KeyID:    keyID,
+		Key:      key,
+		N:        key.N.Text(16),
+		E:        key.E,
+		NotAfter: notAfter,
 	}
 }
 

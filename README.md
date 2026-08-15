@@ -29,11 +29,12 @@ The cryptographic part uses Cloudflare CIRCL's implementation of RFC 9474 RSA Bl
 Benchmarks were run on an Apple M1 Pro with 2048-bit RSA keys.
 
 ```text
-BenchmarkBlindSignUnblindVerify-8      about 3.70 ms/op   56.2 KB/op   178 allocs/op
-BenchmarkIssueAndRedeem-8              about 3.60 ms/op   57.7 KB/op   183 allocs/op
+BenchmarkBlindSignUnblindVerify-8      about 3.66 ms/op    56.2 KB/op   178 allocs/op
+BenchmarkIssueAndRedeem-8              about 3.83 ms/op    57.7 KB/op   183 allocs/op
+BenchmarkIssueAndRedeemBolt-8          about 12.2 ms/op    87.4 KB/op   236 allocs/op
 ```
 
-That is roughly 270 blind-signature flows per second for the crypto path and 277 full issue-and-redeem flows per second in one process.
+That is roughly 273 blind-signature flows per second for the crypto path, 261 full issue-and-redeem flows per second with the memory store, and 82 full flows per second with durable bbolt replay storage.
 
 This should not be compared to JWT on speed alone. JWT wins that benchmark easily. The comparison here is about what the gateway learns. Anonpass spends a few milliseconds so the gateway can validate a one-time token without receiving the account identity.
 
@@ -44,8 +45,15 @@ In a larger deployment, the bottleneck would likely move to durable replay stora
 Start the server:
 
 ```sh
-go run ./cmd/anonpassd -addr :8080 -quota 5
+go run ./cmd/anonpassd \
+  -addr :8080 \
+  -quota 5 \
+  -key-file data/issuer.pem \
+  -replay-db data/replay.db \
+  -token-ttl 24h
 ```
+
+The server keeps the RSA issuer key in `data/issuer.pem` and records spent tokens in `data/replay.db`. If the process restarts, old tokens cannot be spent again.
 
 Run the local protocol demo:
 
@@ -94,16 +102,17 @@ The curl examples show the server boundary. The client-side blind and unblind fl
 cmd/anonpassd         HTTP server
 cmd/anonpassdemo      local end-to-end demo
 internal/blindrsa     wrapper around CIRCL RFC 9474 RSABSSA
+internal/keyfile      PEM key loading and creation
 internal/tokens       issuer, gateway, quota, replay cache
 internal/httpapi      JSON handlers
 docs/design.md        design notes
 docs/api.md           API reference
 ```
 
-## Current Limits
+## Operational Notes
 
-The demo stores quota and spent tokens in memory. A production version would need durable replay storage, token expiry, key management, and care around timing correlation. Those parts are left visible in the design instead of being hidden behind framework code.
+The current server has durable replay protection, file-backed key loading, and key expiry through `not_after`. Quota is still in memory because quota policy is usually product-specific. In a multi-gateway deployment, `data/replay.db` should be replaced by a shared store with atomic insert semantics.
 
 ## AI Use
 
-AI was used to help edit the wording of the documentation and suggestion for libraries. The protocol choice, code structure, tests, benchmark runs, and final review remain the author's responsibility.
+AI was used to help edit the wording of the documentation. The protocol choice, code structure, tests, benchmark runs, and final review remain the author's responsibility.

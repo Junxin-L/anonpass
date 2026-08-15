@@ -14,12 +14,13 @@ The issuer owns:
 
 - the signing key
 - the active key id
+- the key expiry time
 - per-account quota
 
 The gateway owns:
 
 - the issuer public-key set
-- the spent-token table
+- the durable spent-token table
 - redemption receipts
 
 The client owns:
@@ -60,13 +61,13 @@ gateway -> client: receipt
 
 During issuance, the issuer checks quota before signing. During redemption, the gateway verifies the signature first and then inserts the token hash into the spent table.
 
-The order matters. A bad signature should not consume storage. A valid token must be recorded atomically before the gateway accepts it.
+The order matters. A bad signature should not consume storage. A valid token must be recorded atomically before the gateway accepts it. The gateway also rejects requests for keys whose `not_after` time has passed.
 
 ## Replay State
 
-In this repository the spent table is a Go map protected by a mutex. That is enough for the local server and unit tests.
+The server uses bbolt for replay state. Each spent token is stored by `SHA256(token)`, not by the raw token bytes. The local tests also keep an in-memory store because it is faster for unit tests.
 
-In a real deployment, replay protection would be the main consistency problem. The spent-token insert should be a single atomic write:
+In a larger deployment, replay protection would be the main consistency problem. The spent-token insert still needs to be a single atomic write:
 
 ```sql
 INSERT INTO spent_tokens(token_hash, redeemed_at)
@@ -74,13 +75,13 @@ VALUES ($1, now())
 ON CONFLICT DO NOTHING;
 ```
 
-The redemption succeeds only if the insert creates a new row. With multiple gateway replicas, this table must be shared or strongly partitioned by token hash.
+The redemption succeeds only if the insert creates a new row. With multiple gateway replicas, this table should be shared or strongly partitioned by token hash.
 
 ## Key Rotation
 
-Every blind signature response includes a `key_id`. The gateway keeps a map from `key_id` to issuer public key.
+Every blind signature response includes a `key_id`. The gateway keeps a map from `key_id` to issuer public key and its `not_after` time.
 
-A production deployment would keep old keys until outstanding tokens expire. New issuance would use only the active key. Revoked keys would be blocked at redemption.
+The local server loads or creates the issuer RSA key from a PEM file. That avoids losing the signing key on restart. New issuance uses the active key. Gateways can keep old public keys until their `not_after` time passes, and revoked keys can be removed immediately.
 
 This is why the key id is part of the protocol messages even though the demo starts with one key.
 
@@ -90,8 +91,8 @@ The gateway cannot learn which account received a token from the normal redempti
 
 The system does not hide timing by itself. If Alice requests a token and immediately uses it, logs from both services may still correlate the events. This is a metadata problem, not a signature problem.
 
-## What Would Change In Production
+## Remaining Production Work
 
-The in-memory maps would move to durable stores. Quota should be kept in a ledger or transactional database. Spent tokens need atomic insert semantics. Signing keys should live in KMS or an HSM. Tokens should carry an expiry epoch so old keys can be removed. Logs should avoid raw token values and should be checked for timing leaks.
+Quota should move to a ledger or transactional database if this becomes a real product. Signing keys should eventually live in KMS or an HSM instead of a local PEM file. Logs should avoid raw token values and should be checked for timing leaks.
 
 The main design would stay the same: identity at the issuer, anonymous redemption at the gateway, and a one-time replay check in the middle.

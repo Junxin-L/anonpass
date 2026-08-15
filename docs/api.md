@@ -12,11 +12,12 @@ Response:
 {
   "key_id": "local-1",
   "n": "hex-rsa-modulus",
-  "e": 65537
+  "e": 65537,
+  "not_after": 1786636800
 }
 ```
 
-Clients use this key to blind tokens locally.
+Clients use this key to blind tokens locally. Gateways reject redemption after `not_after`.
 
 ## Blind Sign
 
@@ -78,4 +79,5 @@ Errors:
 
 - `400 unknown_key`
 - `401 bad_token`
+- `401 expired_key`
 - `409 already_spent`

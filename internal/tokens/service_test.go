@@ -3,6 +3,7 @@ package tokens
 import (
 	"encoding/hex"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -135,6 +136,86 @@ func TestGatewayCanAcceptRotatedKey(t *testing.T) {
 	}
 }
 
+func TestRedeemRejectsExpiredKey(t *testing.T) {
+	issuer, err := NewIssuer("k1", 1024, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	issuer.notAfter = time.Now().Add(-time.Second).Unix()
+	pub := issuer.PublicKey()
+	gateway := NewGateway(pub)
+
+	clientToken, err := NewClientToken(pub.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blindSig, err := issuer.Issue("alice", clientToken.Blind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawBlindSig, err := hex.DecodeString(blindSig.Signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := clientToken.Unblind(pub.Key, rawBlindSig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := gateway.Redeem(blindSig.KeyID, clientToken.Token, sig); !errors.Is(err, ErrExpiredKey) {
+		t.Fatalf("err = %v, want expired key", err)
+	}
+}
+
+func TestBoltReplayStorePersistsSpentToken(t *testing.T) {
+	issuer, err := NewIssuer("k1", 1024, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := issuer.PublicKey()
+	dbPath := filepath.Join(t.TempDir(), "replay.db")
+
+	clientToken, err := NewClientToken(pub.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blindSig, err := issuer.Issue("alice", clientToken.Blind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawBlindSig, err := hex.DecodeString(blindSig.Signature)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := clientToken.Unblind(pub.Key, rawBlindSig)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := OpenBoltReplayStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gateway := NewGatewayWithStore(store, pub)
+	if _, err := gateway.Redeem(blindSig.KeyID, clientToken.Token, sig); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = OpenBoltReplayStore(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	gateway = NewGatewayWithStore(store, pub)
+	if _, err := gateway.Redeem(blindSig.KeyID, clientToken.Token, sig); !errors.Is(err, ErrAlreadySpent) {
+		t.Fatalf("err = %v, want already spent", err)
+	}
+}
+
 func BenchmarkIssueAndRedeem(b *testing.B) {
 	issuer, err := NewIssuer("bench", 2048, b.N+1)
 	if err != nil {
@@ -142,6 +223,47 @@ func BenchmarkIssueAndRedeem(b *testing.B) {
 	}
 	pub := issuer.PublicKey()
 	gateway := NewGateway(pub)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		clientToken, err := NewClientToken(pub.Key)
+		if err != nil {
+			b.Fatal(err)
+		}
+		blindSig, err := issuer.Issue("benchmark-account", clientToken.Blind)
+		if err != nil {
+			b.Fatal(err)
+		}
+		rawBlindSig, err := hex.DecodeString(blindSig.Signature)
+		if err != nil {
+			b.Fatal(err)
+		}
+		sig, err := clientToken.Unblind(pub.Key, rawBlindSig)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if _, err := gateway.Redeem(blindSig.KeyID, clientToken.Token, sig); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkIssueAndRedeemBolt(b *testing.B) {
+	issuer, err := NewIssuer("bench", 2048, b.N+1)
+	if err != nil {
+		b.Fatal(err)
+	}
+	pub := issuer.PublicKey()
+
+	store, err := OpenBoltReplayStore(filepath.Join(b.TempDir(), "replay.db"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer store.Close()
+
+	gateway := NewGatewayWithStore(store, pub)
 
 	b.ReportAllocs()
 	b.ResetTimer()
