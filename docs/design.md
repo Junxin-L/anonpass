@@ -65,17 +65,19 @@ The order matters. A bad signature should not consume storage. A valid token mus
 
 ## Replay State
 
-The server uses bbolt for replay state. Each spent token is stored by `SHA256(token)`, not by the raw token bytes. The local tests also keep an in-memory store because it is faster for unit tests.
+The server has two durable replay options.
 
-In a larger deployment, replay protection would be the main consistency problem. The spent-token insert still needs to be a single atomic write:
+For one process, bbolt stores spent tokens on disk. Each spent token is stored by `SHA256(token)`, not by the raw token bytes.
+
+For multiple gateway processes, PostgreSQL gives a shared atomic replay check. The table has `token_hash` as the primary key. A redemption succeeds only when this insert creates a new row:
 
 ```sql
-INSERT INTO spent_tokens(token_hash, redeemed_at)
-VALUES ($1, now())
+INSERT INTO spent_tokens(token_hash, receipt_json, redeemed_at)
+VALUES ($1, $2, $3)
 ON CONFLICT DO NOTHING;
 ```
 
-The redemption succeeds only if the insert creates a new row. With multiple gateway replicas, this table should be shared or strongly partitioned by token hash.
+The implementation stores the full receipt as JSONB as well, so a replayed token can return the original receipt. Unit tests use the in-memory store when persistence is not part of the test.
 
 ## Key Rotation
 

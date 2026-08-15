@@ -16,6 +16,7 @@ func main() {
 	keyID := flag.String("key-id", "local-1", "issuer key id")
 	keyPath := flag.String("key-file", "data/issuer.pem", "RSA private key path")
 	replayPath := flag.String("replay-db", "data/replay.db", "spent-token database path")
+	replayPostgresDSN := flag.String("replay-postgres-dsn", "", "PostgreSQL DSN for shared replay storage")
 	quota := flag.Int("quota", 5, "tokens per account")
 	tokenTTL := flag.Duration("token-ttl", 24*time.Hour, "maximum token lifetime for this issuer key")
 	flag.Parse()
@@ -26,7 +27,7 @@ func main() {
 	}
 	issuer := tokens.NewIssuerWithKey(*keyID, key, *quota, time.Now().Add(*tokenTTL).Unix())
 
-	replayStore, err := tokens.OpenBoltReplayStore(*replayPath)
+	replayStore, err := openReplayStore(*replayPostgresDSN, *replayPath)
 	if err != nil {
 		log.Fatalf("open replay store: %v", err)
 	}
@@ -44,4 +45,11 @@ func main() {
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server stopped: %v", err)
 	}
+}
+
+func openReplayStore(postgresDSN, boltPath string) (tokens.ReplayStore, error) {
+	if postgresDSN != "" {
+		return tokens.OpenPostgresReplayStore(postgresDSN)
+	}
+	return tokens.OpenBoltReplayStore(boltPath)
 }

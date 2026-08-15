@@ -50,10 +50,23 @@ go run ./cmd/anonpassd \
   -quota 5 \
   -key-file data/issuer.pem \
   -replay-db data/replay.db \
+  -replay-postgres-dsn "" \
   -token-ttl 24h
 ```
 
 The server keeps the RSA issuer key in `data/issuer.pem` and records spent tokens in `data/replay.db`. If the process restarts, old tokens cannot be spent again.
+
+For multiple gateway processes, use PostgreSQL instead of the local bbolt file:
+
+```sh
+go run ./cmd/anonpassd \
+  -addr :8080 \
+  -quota 5 \
+  -key-file data/issuer.pem \
+  -replay-postgres-dsn 'postgres://user:pass@host:5432/anonpass?sslmode=require'
+```
+
+The PostgreSQL replay store uses `token_hash` as a primary key and accepts a redemption only when `INSERT ... ON CONFLICT DO NOTHING` inserts a new row.
 
 Run the local protocol demo:
 
@@ -103,7 +116,7 @@ cmd/anonpassd         HTTP server
 cmd/anonpassdemo      local end-to-end demo
 internal/blindrsa     wrapper around CIRCL RFC 9474 RSABSSA
 internal/keyfile      PEM key loading and creation
-internal/tokens       issuer, gateway, quota, replay cache
+internal/tokens       issuer, gateway, quota, replay stores
 internal/httpapi      JSON handlers
 docs/design.md        design notes
 docs/api.md           API reference
@@ -111,7 +124,7 @@ docs/api.md           API reference
 
 ## Operational Notes
 
-The current server has durable replay protection, file-backed key loading, and key expiry through `not_after`. Quota is still in memory because quota policy is usually product-specific. In a multi-gateway deployment, `data/replay.db` should be replaced by a shared store with atomic insert semantics.
+The current server has durable replay protection, file-backed key loading, and key expiry through `not_after`. Single-node deployments can use bbolt. Multi-gateway deployments can use PostgreSQL for shared atomic replay checks. Quota is still in memory because quota policy is usually product-specific.
 
 ## AI Use
 
