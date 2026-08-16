@@ -15,7 +15,7 @@ The issuer owns:
 - the signing key
 - the active key id
 - the key expiry time
-- per-account quota
+- per-account quota by window
 
 The gateway owns:
 
@@ -30,6 +30,8 @@ The client owns:
 - the unblinded signature
 
 Keeping these roles separate makes the privacy boundary easy to inspect in code. The issuer API receives an account and a blinded token. The gateway API receives a token and a signature. There is no endpoint where both account and final token are required.
+
+The browser console uses `/v1/demo/*` endpoints to show the protocol steps without shipping a JavaScript implementation of CIRCL. Those endpoints are for inspection and demos. The normal issuer and gateway APIs remain separate.
 
 ## Cryptography
 
@@ -79,6 +81,42 @@ ON CONFLICT DO NOTHING;
 
 The implementation stores the full receipt as JSONB as well, so a replayed token can return the original receipt. Unit tests use the in-memory store when persistence is not part of the test.
 
+## Quota State
+
+Many users mainly stress the issuer. If two issuer replicas receive requests for the same account at the same time, quota must be updated atomically. Otherwise the service can over-issue.
+
+For local tests, the issuer uses an in-memory quota store. For multi-user deployment, PostgreSQL stores one row per `(account, window)`:
+
+```sql
+CREATE TABLE quota_windows (
+  account TEXT NOT NULL,
+  window TEXT NOT NULL,
+  used_count INTEGER NOT NULL,
+  quota_limit INTEGER NOT NULL,
+  updated_at BIGINT NOT NULL,
+  PRIMARY KEY (account, window)
+);
+```
+
+Issuance uses one upsert statement. It increments `used_count` only while the current count is below the limit. If no row is returned, the account has no quota left for that window.
+
+The current window is a UTC date such as `2026-08-14`. That keeps the policy simple and makes quota reset behavior easy to inspect.
+
+## Many Clients
+
+With thousands of clients, the first goal is correctness under concurrency. The issuer must not over-issue when many requests hit the same account, and the gateway must not accept the same token twice when many gateway replicas are running.
+
+Anonpass handles those two points with shared atomic stores:
+
+- quota: PostgreSQL upsert on `(account, window)`
+- replay: PostgreSQL insert on `token_hash`
+
+The local HTTP server also sets read, write, idle, and header limits so slow clients cannot hold connections forever.
+
+The repository includes `cmd/anonpassload` for stress runs. It can run a fixed flow such as "10,000 clients each issue two tokens", or random traffic such as "50,000 requests across 10,000 clients with 60% issue and 5% replay". This is not a full benchmark suite, but it is enough to expose quota bugs, replay bugs, and obvious concurrency bottlenecks.
+
+The expensive operation is still blind RSA signing. A high-throughput deployment should run multiple issuer replicas, put quota in PostgreSQL, and usually issue several tokens per authenticated session so users do not need a fresh signature for every gateway request.
+
 ## Key Rotation
 
 Every blind signature response includes a `key_id`. The gateway keeps a map from `key_id` to issuer public key and its `not_after` time.
@@ -95,6 +133,6 @@ The system does not hide timing by itself. If Alice requests a token and immedia
 
 ## Remaining Production Work
 
-Quota should move to a ledger or transactional database if this becomes a real product. Signing keys should eventually live in KMS or an HSM instead of a local PEM file. Logs should avoid raw token values and should be checked for timing leaks.
+Signing keys should eventually live in KMS or an HSM instead of a local PEM file. Logs should avoid raw token values and should be checked for timing leaks. For very large deployments, quota and replay tables would need retention jobs and partitioning by date.
 
 The main design would stay the same: identity at the issuer, anonymous redemption at the gateway, and a one-time replay check in the middle.

@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -65,6 +66,60 @@ func TestQuotaIsEnforcedAtIssuer(t *testing.T) {
 	}
 	if _, err := issuer.Issue("alice", second.Blind); !errors.Is(err, ErrNoQuota) {
 		t.Fatalf("err = %v, want no quota", err)
+	}
+}
+
+func TestQuotaIsPerAccount(t *testing.T) {
+	issuer, err := NewIssuer("k1", 1024, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := issuer.PublicKey()
+
+	alice, err := NewClientToken(pub.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := issuer.Issue("alice", alice.Blind); err != nil {
+		t.Fatal(err)
+	}
+
+	bob, err := NewClientToken(pub.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := issuer.Issue("bob", bob.Blind); err != nil {
+		t.Fatalf("bob should have separate quota: %v", err)
+	}
+}
+
+func TestMemoryQuotaStoreConcurrentTake(t *testing.T) {
+	store := NewMemoryQuotaStore()
+	limit := 10
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	allowed := 0
+
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, ok, err := store.Take("alice", limit, "2026-08-14")
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			if ok {
+				mu.Lock()
+				allowed++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if allowed != limit {
+		t.Fatalf("allowed = %d, want %d", allowed, limit)
 	}
 }
 

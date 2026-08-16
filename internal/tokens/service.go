@@ -31,6 +31,7 @@ type PublicKey struct {
 type BlindSignature struct {
 	KeyID     string `json:"key_id"`
 	Signature string `json:"signature"`
+	Remaining int    `json:"remaining"`
 }
 
 type Receipt struct {
@@ -43,8 +44,9 @@ type Issuer struct {
 	keyID    string
 	key      *rsa.PrivateKey
 	notAfter int64
-	quota    map[string]int
+	quota    QuotaStore
 	perUser  int
+	now      func() time.Time
 }
 
 func NewIssuer(keyID string, bits int, perUser int) (*Issuer, error) {
@@ -56,12 +58,20 @@ func NewIssuer(keyID string, bits int, perUser int) (*Issuer, error) {
 }
 
 func NewIssuerWithKey(keyID string, key *rsa.PrivateKey, perUser int, notAfter int64) *Issuer {
+	return NewIssuerWithStore(keyID, key, perUser, notAfter, NewMemoryQuotaStore())
+}
+
+func NewIssuerWithStore(keyID string, key *rsa.PrivateKey, perUser int, notAfter int64, quota QuotaStore) *Issuer {
+	if quota == nil {
+		quota = NewMemoryQuotaStore()
+	}
 	return &Issuer{
 		keyID:    keyID,
 		key:      key,
 		notAfter: notAfter,
-		quota:    make(map[string]int),
+		quota:    quota,
 		perUser:  perUser,
+		now:      time.Now,
 	}
 }
 
@@ -74,26 +84,35 @@ func (i *Issuer) PublicKey() PublicKey {
 
 func (i *Issuer) Issue(account string, blindedToken []byte) (BlindSignature, error) {
 	i.mu.Lock()
-	defer i.mu.Unlock()
+	keyID := i.keyID
+	key := i.key
+	perUser := i.perUser
+	quota := i.quota
+	window := i.window()
+	i.mu.Unlock()
 
-	left, ok := i.quota[account]
-	if !ok {
-		left = i.perUser
-	}
-	if left <= 0 {
-		return BlindSignature{}, ErrNoQuota
-	}
-
-	sig, err := blindrsa.Sign(i.key, blindedToken)
+	remaining, ok, err := quota.Take(account, perUser, window)
 	if err != nil {
 		return BlindSignature{}, err
 	}
-	i.quota[account] = left - 1
+	if !ok {
+		return BlindSignature{}, ErrNoQuota
+	}
+
+	sig, err := blindrsa.Sign(key, blindedToken)
+	if err != nil {
+		return BlindSignature{}, err
+	}
 
 	return BlindSignature{
-		KeyID:     i.keyID,
+		KeyID:     keyID,
 		Signature: hex.EncodeToString(sig),
+		Remaining: remaining,
 	}, nil
+}
+
+func (i *Issuer) window() string {
+	return i.now().UTC().Format("2006-01-02")
 }
 
 type Gateway struct {

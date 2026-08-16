@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>anonpass</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main>
+      <section class="box">
+        <h1>anonpass</h1>
+        <div id="users" class="users" aria-label="clients"></div>
+        <div class="generate-row">
+          <input id="client-count" value="100" inputmode="numeric" autocomplete="off" />
+          <button id="generate-clients-btn" class="small">generate</button>
+        </div>
+        <div class="client-row">
+          <input id="account" value="alice@example.com" autocomplete="off" />
+          <button id="add-client-btn" class="small">add</button>
+        </div>
+        <div class="buttons">
+          <button id="issue-btn">issue</button>
+          <button id="redeem-btn" disabled>redeem</button>
+          <button id="replay-btn" disabled>replay</button>
+        </div>
+        <p id="note">key: loading</p>
+      </section>
+    </main>
+    <footer id="log">ready</footer>
+    <script src="/app.js"></script>
+  </body>
+</html>

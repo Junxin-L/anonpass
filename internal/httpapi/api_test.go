@@ -70,6 +70,39 @@ func TestRedeemEndpointRejectsReplay(t *testing.T) {
 	}
 }
 
+func TestDemoIssueRedeemReplay(t *testing.T) {
+	api, _ := newTestAPI(t)
+
+	issued := post(api, "/v1/demo/issue", map[string]string{
+		"account": "alice@example.com",
+	})
+	if issued.Code != http.StatusOK {
+		t.Fatalf("issue status = %d, body = %s", issued.Code, issued.Body.String())
+	}
+
+	var session demoSession
+	if err := json.Unmarshal(issued.Body.Bytes(), &session); err != nil {
+		t.Fatal(err)
+	}
+	if session.ID == "" || session.Token == "" || session.Signature == "" {
+		t.Fatalf("incomplete session: %+v", session)
+	}
+
+	redeemed := post(api, "/v1/demo/redeem", map[string]string{
+		"session_id": session.ID,
+	})
+	if redeemed.Code != http.StatusOK {
+		t.Fatalf("redeem status = %d, body = %s", redeemed.Code, redeemed.Body.String())
+	}
+
+	replayed := post(api, "/v1/demo/redeem", map[string]string{
+		"session_id": session.ID,
+	})
+	if replayed.Code != http.StatusConflict {
+		t.Fatalf("replay status = %d, want conflict", replayed.Code)
+	}
+}
+
 func newTestAPI(t *testing.T) (http.Handler, *tokens.Issuer) {
 	t.Helper()
 	issuer, err := tokens.NewIssuer("local", 1024, 2)

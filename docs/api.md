@@ -39,7 +39,8 @@ Response:
 ```json
 {
   "key_id": "local-1",
-  "signature": "hex-blind-signature"
+  "signature": "hex-blind-signature",
+  "remaining": 4
 }
 ```
 
@@ -81,3 +82,50 @@ Errors:
 - `401 bad_token`
 - `401 expired_key`
 - `409 already_spent`
+
+## Demo Issue
+
+```http
+POST /v1/demo/issue
+```
+
+Request:
+
+```json
+{
+  "account": "alice@example.com"
+}
+```
+
+Response:
+
+```json
+{
+  "id": "demo-session-id",
+  "account": "alice@example.com",
+  "key_id": "local-1",
+  "remaining": 4,
+  "token": "hex-prepared-token",
+  "blinded_token": "hex-blinded-token",
+  "blind_signature": "hex-blind-signature",
+  "signature": "hex-unblinded-signature"
+}
+```
+
+This endpoint is for the browser console. It simulates the client-side blind and unblind steps on the server so the protocol can be inspected without a JavaScript cryptography implementation.
+
+## Demo Redeem
+
+```http
+POST /v1/demo/redeem
+```
+
+Request:
+
+```json
+{
+  "session_id": "demo-session-id"
+}
+```
+
+The first call should return a receipt. A second call with the same session should return `409 already_spent`.
