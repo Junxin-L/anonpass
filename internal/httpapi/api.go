@@ -22,7 +22,7 @@ type API struct {
 
 func New(issuer *tokens.Issuer, gateway *tokens.Gateway) *API {
 	return NewWithOptions(issuer, gateway, Options{
-		EnableIssuer: true,
+		EnableIssuer:  true,
 		EnableGateway: true,
 		EnableDemo:    true,
 	})
