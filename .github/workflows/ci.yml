@@ -28,10 +28,10 @@ jobs:
           --health-retries 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -64,12 +64,13 @@ jobs:
           go build ./cmd/anonpassd
           go build ./cmd/anonpassdemo
           go build ./cmd/anonpassload
+          go build ./cmd/anonpassmigrate
 
   docker:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Build image
         run: docker build -t anonpass:ci .
