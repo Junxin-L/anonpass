@@ -55,7 +55,7 @@ Only one redemption can succeed for a token. In PostgreSQL this is enforced by `
 
 Quota protection:
 
-Issuer replicas must not over-issue for the same account and window. In PostgreSQL this is enforced by an atomic upsert on `(account, window)`.
+Issuer replicas must not over-issue for the same account and quota window. In PostgreSQL this is enforced by an atomic upsert on `(account, quota_window)`.
 
 Key expiry:
 

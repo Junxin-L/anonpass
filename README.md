@@ -86,7 +86,7 @@ go run ./cmd/anonpassd \
 
 The PostgreSQL replay store uses `token_hash` as a primary key and accepts a redemption only when `INSERT ... ON CONFLICT DO NOTHING` inserts a new row.
 
-The PostgreSQL quota store uses `(account, window)` as a primary key and increments `used_count` in one statement. Many issuer replicas can receive requests for the same account without issuing more than the configured quota.
+The PostgreSQL quota store uses `(account, quota_window)` as a primary key and increments `used_count` in one statement. Many issuer replicas can receive requests for the same account without issuing more than the configured quota.
 
 Run the multi-replica local stack:
 

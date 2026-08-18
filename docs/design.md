@@ -88,16 +88,16 @@ You can apply the whole migration set with `go run ./cmd/anonpassmigrate`.
 
 Many users mainly stress the issuer. If two issuer replicas receive requests for the same account at the same time, quota must be updated atomically. Otherwise the service can over-issue.
 
-For local tests, the issuer uses an in-memory quota store. For multi-user deployment, PostgreSQL stores one row per `(account, window)`:
+For local tests, the issuer uses an in-memory quota store. For multi-user deployment, PostgreSQL stores one row per `(account, quota_window)`:
 
 ```sql
 CREATE TABLE quota_windows (
   account TEXT NOT NULL,
-  window TEXT NOT NULL,
+  quota_window TEXT NOT NULL,
   used_count INTEGER NOT NULL,
   quota_limit INTEGER NOT NULL,
   updated_at BIGINT NOT NULL,
-  PRIMARY KEY (account, window)
+  PRIMARY KEY (account, quota_window)
 );
 ```
 
@@ -114,7 +114,7 @@ With thousands of clients, the first goal is correctness under concurrency. The 
 
 Anonpass handles those two points with shared atomic stores:
 
-- quota: PostgreSQL upsert on `(account, window)`
+- quota: PostgreSQL upsert on `(account, quota_window)`
 - replay: PostgreSQL insert on `token_hash`
 
 The local HTTP server also sets read, write, idle, and header limits so slow clients cannot hold connections forever.

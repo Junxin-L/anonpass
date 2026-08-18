@@ -30,9 +30,9 @@ func OpenPostgresQuotaStore(dsn string) (*PostgresQuotaStore, error) {
 func (s *PostgresQuotaStore) Take(account string, limit int, window string) (int, bool, error) {
 	var remaining int
 	err := s.db.QueryRow(`
-		INSERT INTO quota_windows(account, window, used_count, quota_limit, updated_at)
+		INSERT INTO quota_windows(account, quota_window, used_count, quota_limit, updated_at)
 		VALUES ($1, $2, 1, $3, $4)
-		ON CONFLICT (account, window) DO UPDATE
+		ON CONFLICT (account, quota_window) DO UPDATE
 		SET used_count = quota_windows.used_count + 1,
 			quota_limit = EXCLUDED.quota_limit,
 			updated_at = EXCLUDED.updated_at
@@ -59,11 +59,11 @@ func (s *PostgresQuotaStore) init() error {
 	if _, err := s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS quota_windows (
 			account TEXT NOT NULL,
-			window TEXT NOT NULL,
+			quota_window TEXT NOT NULL,
 			used_count INTEGER NOT NULL,
 			quota_limit INTEGER NOT NULL,
 			updated_at BIGINT NOT NULL,
-			PRIMARY KEY (account, window)
+			PRIMARY KEY (account, quota_window)
 		)
 	`); err != nil {
 		return err
