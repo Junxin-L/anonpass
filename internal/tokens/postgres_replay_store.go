@@ -77,12 +77,18 @@ func (s *PostgresReplayStore) init() error {
 	if err := s.db.Ping(); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`
+	if _, err := s.db.Exec(`
 		CREATE TABLE IF NOT EXISTS spent_tokens (
 			token_hash TEXT PRIMARY KEY,
 			receipt_json JSONB NOT NULL,
 			redeemed_at BIGINT NOT NULL
 		)
+	`); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`
+		CREATE INDEX IF NOT EXISTS spent_tokens_redeemed_at_idx
+		ON spent_tokens(redeemed_at)
 	`)
 	return err
 }

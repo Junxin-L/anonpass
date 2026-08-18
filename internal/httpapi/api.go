@@ -21,13 +21,27 @@ type API struct {
 }
 
 func New(issuer *tokens.Issuer, gateway *tokens.Gateway) *API {
+	return NewWithOptions(issuer, gateway, Options{
+		EnableIssuer: true,
+		EnableGateway: true,
+		EnableDemo:    true,
+	})
+}
+
+type Options struct {
+	EnableIssuer  bool
+	EnableGateway bool
+	EnableDemo    bool
+}
+
+func NewWithOptions(issuer *tokens.Issuer, gateway *tokens.Gateway, opts Options) *API {
 	api := &API{
 		issuer:   issuer,
 		gateway:  gateway,
 		mux:      http.NewServeMux(),
 		sessions: make(map[string]demoSession),
 	}
-	api.routes()
+	api.routes(opts)
 	return api
 }
 
@@ -35,12 +49,18 @@ func (api *API) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	api.mux.ServeHTTP(w, r)
 }
 
-func (api *API) routes() {
-	api.mux.HandleFunc("GET /v1/issuer/key", api.getIssuerKey)
-	api.mux.HandleFunc("POST /v1/issuer/blind-sign", api.issue)
-	api.mux.HandleFunc("POST /v1/gateway/redeem", api.redeem)
-	api.mux.HandleFunc("POST /v1/demo/issue", api.demoIssue)
-	api.mux.HandleFunc("POST /v1/demo/redeem", api.demoRedeem)
+func (api *API) routes(opts Options) {
+	if opts.EnableIssuer {
+		api.mux.HandleFunc("GET /v1/issuer/key", api.getIssuerKey)
+		api.mux.HandleFunc("POST /v1/issuer/blind-sign", api.issue)
+	}
+	if opts.EnableGateway {
+		api.mux.HandleFunc("POST /v1/gateway/redeem", api.redeem)
+	}
+	if opts.EnableDemo {
+		api.mux.HandleFunc("POST /v1/demo/issue", api.demoIssue)
+		api.mux.HandleFunc("POST /v1/demo/redeem", api.demoRedeem)
+	}
 }
 
 func (api *API) getIssuerKey(w http.ResponseWriter, r *http.Request) {

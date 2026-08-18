@@ -94,11 +94,12 @@ func main() {
 		fmt.Printf("clients=%d tokens_per_client=%d concurrency=%d\n", *clients, *tokens, *concurrency)
 	}
 	fmt.Printf("issued=%d redeemed=%d replay_rejected=%d failed=%d\n", issued.Load(), redeemed.Load(), replayRejected.Load(), failed.Load())
-	fmt.Printf("elapsed=%s throughput=%.1f tokens/s p50=%s p95=%s\n",
+	fmt.Printf("elapsed=%s throughput=%.1f tokens/s p50=%s p95=%s p99=%s\n",
 		elapsed.Round(time.Millisecond),
 		float64(redeemed.Load())/elapsed.Seconds(),
 		percentile(samples, 50),
 		percentile(samples, 95),
+		percentile(samples, 99),
 	)
 }
 

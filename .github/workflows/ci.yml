@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: anonpass
+          POSTGRES_PASSWORD: anonpass
+          POSTGRES_DB: anonpass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U anonpass -d anonpass"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: PostgreSQL integration tests
+        env:
+          ANONPASS_TEST_POSTGRES_DSN: postgres://anonpass:anonpass@127.0.0.1:5432/anonpass?sslmode=disable
+        run: go test ./internal/tokens -run Postgres -count=1
+
+      - name: Race tests
+        run: go test -race ./...
+
+      - name: Fuzz smoke
+        run: go test -run=^$ -fuzz=Fuzz -fuzztime=10s ./internal/blindrsa
+
+      - name: Build binaries
+        run: |
+          go build ./cmd/anonpassd
+          go build ./cmd/anonpassdemo
+          go build ./cmd/anonpassload
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t anonpass:ci .

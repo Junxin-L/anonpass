@@ -53,8 +53,10 @@ Start the server:
 ```sh
 go run ./cmd/anonpassd \
   -addr :8080 \
+  -role all \
   -quota 5 \
   -key-file data/issuer.pem \
+  -public-key-file data/issuer.pem.pub \
   -replay-db data/replay.db \
   -replay-postgres-dsn "" \
   -quota-postgres-dsn "" \
@@ -85,6 +87,22 @@ go run ./cmd/anonpassd \
 The PostgreSQL replay store uses `token_hash` as a primary key and accepts a redemption only when `INSERT ... ON CONFLICT DO NOTHING` inserts a new row.
 
 The PostgreSQL quota store uses `(account, window)` as a primary key and increments `used_count` in one statement. Many issuer replicas can receive requests for the same account without issuing more than the configured quota.
+
+Run the multi-replica local stack:
+
+```sh
+docker compose up --build
+```
+
+This starts PostgreSQL, runs the SQL migrations, then brings up an issuer on `localhost:8080`, a gateway on `localhost:8081`, and a demo console on `localhost:8082`. The services share quota and replay state through PostgreSQL.
+
+Run migrations by hand if you want the same step outside Compose:
+
+```sh
+go run ./cmd/anonpassmigrate -dsn 'postgres://user:pass@host:5432/anonpass?sslmode=require'
+```
+
+For a stricter gateway deployment, mount only the public key file into gateway replicas and start them with `-role gateway -public-key-file issuer.pem.pub`.
 
 Run the local protocol demo:
 
@@ -127,6 +145,8 @@ go run ./cmd/anonpassload \
 
 In random mode, each request picks a random client and then chooses issue, redeem, or replay according to the rates.
 
+The output includes throughput plus p50, p95, and p99 latency.
+
 ## API
 
 Fetch the issuer key:
@@ -159,6 +179,7 @@ The curl examples show the server boundary. The client-side blind and unblind fl
 cmd/anonpassd         HTTP server
 cmd/anonpassdemo      local end-to-end demo
 cmd/anonpassload      multi-client load test
+cmd/anonpassmigrate   PostgreSQL migration runner
 internal/blindrsa     wrapper around CIRCL RFC 9474 RSABSSA
 internal/keyfile      PEM key loading and creation
 internal/tokens       issuer, gateway, quota stores, replay stores
@@ -166,11 +187,15 @@ internal/httpapi      JSON handlers
 internal/webui        embedded browser console
 docs/design.md        design notes
 docs/api.md           API reference
+docs/threat-model.md  security assumptions and adversaries
+migrations/           PostgreSQL schema
 ```
 
 ## Operational Notes
 
 The current server has durable replay protection, shared PostgreSQL replay checks, PostgreSQL-backed multi-user quota, file-backed key loading, key expiry through `not_after`, and basic HTTP timeouts. Single-node deployments can still use bbolt for replay state and memory quota for local testing.
+
+CI runs formatting checks, `go vet`, unit tests, race tests, fuzz smoke tests, PostgreSQL integration tests, and Docker image build.
 
 ## AI Use
 

@@ -81,6 +81,9 @@ ON CONFLICT DO NOTHING;
 
 The implementation stores the full receipt as JSONB as well, so a replayed token can return the original receipt. Unit tests use the in-memory store when persistence is not part of the test.
 
+The schema is also kept in `migrations/001_create_spent_tokens.sql`.
+You can apply the whole migration set with `go run ./cmd/anonpassmigrate`.
+
 ## Quota State
 
 Many users mainly stress the issuer. If two issuer replicas receive requests for the same account at the same time, quota must be updated atomically. Otherwise the service can over-issue.
@@ -101,6 +104,9 @@ CREATE TABLE quota_windows (
 Issuance uses one upsert statement. It increments `used_count` only while the current count is below the limit. If no row is returned, the account has no quota left for that window.
 
 The current window is a UTC date such as `2026-08-14`. That keeps the policy simple and makes quota reset behavior easy to inspect.
+
+The schema is also kept in `migrations/002_create_quota_windows.sql`.
+The same migration command applies it in order.
 
 ## Many Clients
 

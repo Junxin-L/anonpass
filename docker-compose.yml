@@ -1,0 +1,94 @@
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: anonpass
+      POSTGRES_PASSWORD: anonpass
+      POSTGRES_DB: anonpass
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anonpass -d anonpass"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  migrate:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["/app/anonpassmigrate"]
+    command:
+      - "-dsn=postgres://anonpass:anonpass@postgres:5432/anonpass?sslmode=disable"
+      - "-dir=/app/migrations"
+
+  issuer-a:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    command:
+      - "-addr=:8080"
+      - "-role=issuer"
+      - "-key-id=local-1"
+      - "-key-file=/data/issuer.pem"
+      - "-quota=100"
+      - "-token-ttl=24h"
+      - "-replay-postgres-dsn=postgres://anonpass:anonpass@postgres:5432/anonpass?sslmode=disable"
+      - "-quota-postgres-dsn=postgres://anonpass:anonpass@postgres:5432/anonpass?sslmode=disable"
+    ports:
+      - "8080:8080"
+    volumes:
+      - issuer-key:/data
+
+  gateway-b:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    command:
+      - "-addr=:8080"
+      - "-role=gateway"
+      - "-key-id=local-1"
+      - "-key-file=/data/issuer.pem"
+      - "-public-key-file=/data/issuer.pem.pub"
+      - "-quota=100"
+      - "-token-ttl=24h"
+      - "-replay-postgres-dsn=postgres://anonpass:anonpass@postgres:5432/anonpass?sslmode=disable"
+      - "-quota-postgres-dsn=postgres://anonpass:anonpass@postgres:5432/anonpass?sslmode=disable"
+    ports:
+      - "8081:8080"
+    volumes:
+      - issuer-key:/data
+
+  console:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    command:
+      - "-addr=:8080"
+      - "-role=all"
+      - "-key-id=local-1"
+      - "-key-file=/data/issuer.pem"
+      - "-quota=100"
+      - "-token-ttl=24h"
+      - "-replay-postgres-dsn=postgres://anonpass:anonpass@postgres:5432/anonpass?sslmode=disable"
+      - "-quota-postgres-dsn=postgres://anonpass:anonpass@postgres:5432/anonpass?sslmode=disable"
+    ports:
+      - "8082:8080"
+    volumes:
+      - issuer-key:/data
+
+volumes:
+  pgdata:
+  issuer-key:

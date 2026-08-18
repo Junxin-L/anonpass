@@ -36,7 +36,29 @@ func LoadOrCreate(path string, bits int) (*rsa.PrivateKey, error) {
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(key),
 	}
-	return key, os.WriteFile(path, pem.EncodeToMemory(block), 0600)
+	if err := os.WriteFile(path, pem.EncodeToMemory(block), 0600); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(pubPath(path), pem.EncodeToMemory(publicBlock(&key.PublicKey)), 0644); err != nil {
+		return nil, err
+	}
+	return key, nil
+}
+
+func LoadPublic(path string) (*rsa.PublicKey, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	block, _ := pem.Decode(data)
+	if block == nil || block.Type != "RSA PUBLIC KEY" {
+		return nil, ErrBadKeyFile
+	}
+	key, err := x509.ParsePKCS1PublicKey(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	return key, nil
 }
 
 func parse(data []byte) (*rsa.PrivateKey, error) {
@@ -49,4 +71,15 @@ func parse(data []byte) (*rsa.PrivateKey, error) {
 		return nil, err
 	}
 	return key, key.Validate()
+}
+
+func pubPath(path string) string {
+	return path + ".pub"
+}
+
+func publicBlock(pub *rsa.PublicKey) *pem.Block {
+	return &pem.Block{
+		Type:  "RSA PUBLIC KEY",
+		Bytes: x509.MarshalPKCS1PublicKey(pub),
+	}
 }
